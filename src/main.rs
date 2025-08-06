@@ -1,0 +1,21 @@
+use anyhow::Result;
+use colored::Colorize;
+use utils::{build_cli, handle_aliases_mode, handle_functions_mode};
+
+fn main() -> Result<()> {
+    let matches = build_cli().get_matches();
+    let mode = matches.get_one::<String>("mode").unwrap();
+    
+    match mode.as_str() {
+        "functions" => {
+            println!("{}", "🔧 Shell Function Explorer".bold().cyan());
+            println!("{}", "─".repeat(60).dimmed());
+            handle_functions_mode(&matches)
+        }
+        "aliases" | _ => {
+            println!("{}", "🔍 Shell Alias Explorer".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+            handle_aliases_mode(&matches)
+        }
+    }
+}
