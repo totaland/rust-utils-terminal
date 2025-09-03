@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use utils::{build_cli, handle_aliases_mode, handle_functions_mode};
+use utils::{build_cli, handle_aliases_mode, handle_functions_mode, handle_packages_mode};
 
 fn main() -> Result<()> {
     let matches = build_cli().get_matches();
@@ -11,6 +11,11 @@ fn main() -> Result<()> {
             println!("{}", "🔧 Shell Function Explorer".bold().cyan());
             println!("{}", "─".repeat(60).dimmed());
             handle_functions_mode(&matches)
+        }
+        "packages" => {
+            println!("{}", "📦 Package Version Explorer".bold().cyan());
+            println!("{}", "─".repeat(60).dimmed());
+            handle_packages_mode(&matches)
         }
         "aliases" | _ => {
             println!("{}", "🔍 Shell Alias Explorer".bold().cyan());
