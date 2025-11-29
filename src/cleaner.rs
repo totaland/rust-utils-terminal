@@ -670,20 +670,23 @@ fn delete_all_node_modules(search_path: Option<&str>, verbose: bool) -> Result<V
         while !done_clone.load(Ordering::Relaxed) {
             let deleted = deleted_clone.load(Ordering::Relaxed);
             let errors = error_clone.load(Ordering::Relaxed);
-            let path = current_path_clone.lock().map(|p| p.clone()).unwrap_or_default();
-            
+            let path = current_path_clone
+                .lock()
+                .map(|p| p.clone())
+                .unwrap_or_default();
+
             let display_path = if path.len() > 45 {
                 format!("...{}", &path[path.len() - 42..])
             } else {
                 path
             };
-            
+
             let error_str = if errors > 0 {
                 format!(" | {} errors", errors.to_string().red())
             } else {
                 String::new()
             };
-            
+
             print!(
                 "\r{} Deleted {}/{}{}  {}",
                 "🗑️".cyan(),
