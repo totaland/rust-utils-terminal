@@ -4,12 +4,14 @@ use colored::Colorize;
 
 use crate::{
     clean_node_modules, display_aliases_table, display_bookmarks_table,
-    display_category_stats_table, display_cleaned_table, display_domain_stats_table,
-    display_duplicates_table, display_functions_table, display_organize_suggestions_table,
-    display_organize_table, display_packages_table, export_to_markdown, filter_by_category,
-    filter_by_domain, find_duplicates, find_packages_with_version_greater_than, get_all_aliases,
+    display_category_stats_table, display_cleaned_table, display_dead_links_table,
+    display_domain_stats_table, display_duplicates_table, display_functions_table,
+    display_organize_suggestions_table, display_organize_table, display_packages_table,
+    export_to_chrome_html, export_to_markdown, filter_by_category, filter_by_domain,
+    find_dead_links, find_duplicates, find_packages_with_version_greater_than, get_all_aliases,
     get_all_functions, get_bookmark_stats, get_category_stats, get_domain_stats,
-    get_organize_suggestions, organize_files, parse_bookmarks, search_bookmarks,
+    get_organize_suggestions, organize_files, parse_bookmarks, remove_dead_links,
+    remove_duplicates, search_bookmarks,
 };
 
 pub fn build_cli() -> ClapCommand {
@@ -26,13 +28,17 @@ MODES:
   bookmarks - Organize and analyze Chrome bookmarks
 
 BOOKMARK SUBCOMMANDS:
-  bookmarks stats      - Show bookmark statistics (domains, categories, duplicates)
-  bookmarks duplicates - Find duplicate bookmarks
-  bookmarks domains    - Show bookmarks grouped by domain
-  bookmarks categories - Show bookmarks grouped by category
-  bookmarks search     - Search bookmarks by query
-  bookmarks organize   - Get organization suggestions
-  bookmarks export     - Export bookmarks to markdown
+  bookmarks stats           - Show bookmark statistics (domains, categories, duplicates)
+  bookmarks duplicates      - Find duplicate bookmarks
+  bookmarks remove-dupes    - Remove duplicate bookmarks (interactive)
+  bookmarks deadlinks       - Check for dead/broken links
+  bookmarks remove-dead     - Remove dead links (interactive)
+  bookmarks domains         - Show bookmarks grouped by domain
+  bookmarks categories      - Show bookmarks grouped by category
+  bookmarks search          - Search bookmarks by query
+  bookmarks organize        - Get organization suggestions
+  bookmarks export          - Export bookmarks to markdown
+  bookmarks export-html     - Export organized bookmarks to Chrome-importable HTML
 
 EXAMPLES:
   shell-explorer                                    # Show all aliases (default)
@@ -44,8 +50,11 @@ EXAMPLES:
   shell-explorer --mode clean --interactive        # Select which node_modules to delete
   shell-explorer --mode organize --path ~/Downloads # Organize files in Downloads
   shell-explorer --mode organize --dry-run          # Preview organization
-  shell-explorer --mode bookmarks --subcommand stats      # Show bookmark stats
-  shell-explorer --mode bookmarks --subcommand duplicates # Find duplicates
+  shell-explorer --mode bookmarks --subcommand stats           # Show bookmark stats
+  shell-explorer --mode bookmarks --subcommand duplicates      # Find duplicates
+  shell-explorer --mode bookmarks --subcommand remove-dupes    # Remove duplicates (confirm)
+  shell-explorer --mode bookmarks --subcommand deadlinks       # Check for dead links
+  shell-explorer --mode bookmarks --subcommand remove-dead     # Remove dead links (confirm)
   shell-explorer --mode bookmarks --subcommand search --query github  # Search bookmarks
   shell-explorer --mode bookmarks --subcommand export --output bookmarks.md")
         .version("1.0.0")
@@ -61,7 +70,7 @@ EXAMPLES:
             Arg::new("subcommand")
                 .long("subcommand")
                 .value_name("SUBCOMMAND")
-                .help("Subcommand for bookmarks mode: 'stats', 'duplicates', 'domains', 'categories', 'search', 'organize', 'export'")
+                .help("Subcommand for bookmarks mode: 'stats', 'duplicates', 'remove-dupes', 'deadlinks', 'remove-dead', 'domains', 'categories', 'search', 'organize', 'export', 'export-html'")
         )
         .arg(
             Arg::new("query")
@@ -332,6 +341,8 @@ pub fn handle_bookmarks_mode(matches: &ArgMatches) -> Result<()> {
         .map(|s| s.as_str())
         .unwrap_or("stats");
     let use_colors = !matches.get_flag("plain");
+    let verbose = matches.get_flag("verbose");
+    let dry_run = matches.get_flag("dry_run");
     let limit = matches
         .get_one::<String>("limit")
         .and_then(|s| s.parse::<usize>().ok());
@@ -547,11 +558,78 @@ pub fn handle_bookmarks_mode(matches: &ArgMatches) -> Result<()> {
                 path.cyan()
             );
         }
+        "export-html" => {
+            let output_path = matches.get_one::<String>("output").map(|s| s.as_str());
+            let default_path = "bookmarks_organized.html";
+            let path = output_path.unwrap_or(default_path);
+
+            println!(
+                "{} Exporting organized bookmarks to Chrome HTML...",
+                "📝".cyan()
+            );
+            export_to_chrome_html(&bookmarks, Some(path))?;
+        }
+        "deadlinks" => {
+            println!("{}", "🔗 Checking for Dead Links".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            let dead_links = find_dead_links(&bookmarks, verbose);
+            if dead_links.is_empty() {
+                println!(
+                    "{}",
+                    "No dead links found! All bookmarks are valid.".green()
+                );
+            } else {
+                let limited: Vec<_> = if let Some(lim) = limit {
+                    dead_links.into_iter().take(lim).collect()
+                } else {
+                    dead_links
+                };
+                let count = limited.len();
+                display_dead_links_table(limited, use_colors)?;
+                println!(
+                    "\n{} Found {} dead links",
+                    "📊".cyan(),
+                    count.to_string().red()
+                );
+                println!(
+                    "\n{} Use --subcommand remove-dead to remove these dead links",
+                    "💡".yellow()
+                );
+            }
+        }
+        "remove-dead" => {
+            println!("{}", "🗑️  Remove Dead Links".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            // First find dead links
+            let dead_links = find_dead_links(&bookmarks, verbose);
+            if dead_links.is_empty() {
+                println!(
+                    "{}",
+                    "No dead links found! All bookmarks are valid.".green()
+                );
+            } else {
+                let count = dead_links.len();
+                println!(
+                    "\n{} Found {} dead links to remove",
+                    "📊".cyan(),
+                    count.to_string().red()
+                );
+                remove_dead_links(&dead_links, dry_run, true)?;
+            }
+        }
+        "remove-dupes" => {
+            println!("{}", "🗑️  Remove Duplicate Bookmarks".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            remove_duplicates(dry_run, true)?;
+        }
         _ => {
             println!(
                 "{}",
                 format!(
-                    "Unknown subcommand: {}. Use: stats, duplicates, domains, categories, search, organize, export",
+                    "Unknown subcommand: {}. Use: stats, duplicates, remove-dupes, deadlinks, remove-dead, domains, categories, search, organize, export",
                     subcommand
                 )
                 .yellow()

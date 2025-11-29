@@ -8,8 +8,8 @@ use tabled::{
 };
 
 use crate::{
-    AliasEntry, BookmarkTableEntry, CategoryEntry, CleanedEntry, DomainEntry, DuplicateEntry,
-    FunctionEntry, OrganizeSuggestion, PackageEntry,
+    AliasEntry, BookmarkTableEntry, CategoryEntry, CleanedEntry, DeadLinkEntry, DomainEntry,
+    DuplicateEntry, FunctionEntry, OrganizeSuggestion, PackageEntry,
 };
 
 pub fn display_aliases_table(aliases: Vec<AliasEntry>, use_colors: bool) -> Result<()> {
@@ -401,6 +401,53 @@ pub fn display_organize_suggestions_table(
             .with(Modify::new(Columns::new(1..2)).with(Width::wrap(30)))
             .with(Modify::new(Columns::new(2..3)).with(Width::wrap(20)))
             .with(Modify::new(Columns::new(3..4)).with(Width::wrap(20)));
+    }
+
+    println!("\n{}", table);
+
+    Ok(())
+}
+
+pub fn display_dead_links_table(entries: Vec<DeadLinkEntry>, use_colors: bool) -> Result<()> {
+    let mut table = Table::new(&entries);
+
+    table.with(Style::rounded());
+
+    if use_colors {
+        table
+            .with(
+                Modify::new(Rows::first())
+                    .with(Color::BG_BLUE)
+                    .with(Color::FG_WHITE)
+                    .with(Alignment::center()),
+            )
+            .with(
+                Modify::new(Columns::new(0..1))
+                    .with(Color::FG_CYAN)
+                    .with(Width::wrap(40)),
+            )
+            .with(
+                Modify::new(Columns::new(1..2))
+                    .with(Color::FG_GREEN)
+                    .with(Width::wrap(50)),
+            )
+            .with(
+                Modify::new(Columns::new(2..3))
+                    .with(Color::FG_RED)
+                    .with(Width::wrap(20)),
+            )
+            .with(
+                Modify::new(Columns::new(3..4))
+                    .with(Color::FG_YELLOW)
+                    .with(Width::wrap(25)),
+            );
+    } else {
+        table
+            .with(Modify::new(Rows::first()).with(Alignment::center()))
+            .with(Modify::new(Columns::new(0..1)).with(Width::wrap(40)))
+            .with(Modify::new(Columns::new(1..2)).with(Width::wrap(50)))
+            .with(Modify::new(Columns::new(2..3)).with(Width::wrap(20)))
+            .with(Modify::new(Columns::new(3..4)).with(Width::wrap(25)));
     }
 
     println!("\n{}", table);

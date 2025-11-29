@@ -1,8 +1,12 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 use tabled::Tabled;
 
 /// Chrome bookmarks file location on macOS
@@ -25,8 +29,34 @@ pub enum BookmarkCategory {
     AIComputerVision,
     AINLP,
     AIResearch,
+    // Development Subcategories
+    DevGeneral,
+    DevReact,
+    DevPython,
+    DevJava,
+    DevRust,
+    DevJavaScript,
+    DevTypeScript,
+    DevCSS,
+    DevKubernetes,
+    DevDocker,
+    DevPostgres,
+    DevDatabase,
+    DevAWS,
+    DevServerless,
+    DevWebTech,
+    DevMobile,
+    DevGit,
+    DevDevOps,
+    DevAPI,
+    // Finance Subcategories
+    FinanceGeneral,
+    FinanceCrypto,
+    FinanceTrading,
+    FinancePersonal,
+    // Personal Development
+    PersonalDevelopment,
     // General Categories
-    Development,
     Social,
     News,
     Shopping,
@@ -34,7 +64,6 @@ pub enum BookmarkCategory {
     Education,
     Reference,
     Tools,
-    Finance,
     Health,
     Travel,
     Food,
@@ -62,8 +91,34 @@ impl std::fmt::Display for BookmarkCategory {
             BookmarkCategory::AIComputerVision => write!(f, "👁️  Computer Vision"),
             BookmarkCategory::AINLP => write!(f, "💬 NLP"),
             BookmarkCategory::AIResearch => write!(f, "🔬 AI Research"),
+            // Development Subcategories
+            BookmarkCategory::DevGeneral => write!(f, "🛠️  Dev/General"),
+            BookmarkCategory::DevReact => write!(f, "⚛️  Dev/React"),
+            BookmarkCategory::DevPython => write!(f, "🐍 Dev/Python"),
+            BookmarkCategory::DevJava => write!(f, "☕ Dev/Java"),
+            BookmarkCategory::DevRust => write!(f, "🦀 Dev/Rust"),
+            BookmarkCategory::DevJavaScript => write!(f, "🟨 Dev/JavaScript"),
+            BookmarkCategory::DevTypeScript => write!(f, "🔷 Dev/TypeScript"),
+            BookmarkCategory::DevCSS => write!(f, "🎨 Dev/CSS"),
+            BookmarkCategory::DevKubernetes => write!(f, "☸️  Dev/Kubernetes"),
+            BookmarkCategory::DevDocker => write!(f, "🐳 Dev/Docker"),
+            BookmarkCategory::DevPostgres => write!(f, "🐘 Dev/PostgreSQL"),
+            BookmarkCategory::DevDatabase => write!(f, "🗃️  Dev/Database"),
+            BookmarkCategory::DevAWS => write!(f, "☁️  Dev/AWS"),
+            BookmarkCategory::DevServerless => write!(f, "⚡ Dev/Serverless"),
+            BookmarkCategory::DevWebTech => write!(f, "🌐 Dev/WebTech"),
+            BookmarkCategory::DevMobile => write!(f, "📱 Dev/Mobile"),
+            BookmarkCategory::DevGit => write!(f, "📦 Dev/Git"),
+            BookmarkCategory::DevDevOps => write!(f, "🔧 Dev/DevOps"),
+            BookmarkCategory::DevAPI => write!(f, "🔌 Dev/API"),
+            // Finance Subcategories
+            BookmarkCategory::FinanceGeneral => write!(f, "💰 Finance/General"),
+            BookmarkCategory::FinanceCrypto => write!(f, "₿ Finance/Crypto"),
+            BookmarkCategory::FinanceTrading => write!(f, "📈 Finance/Trading"),
+            BookmarkCategory::FinancePersonal => write!(f, "💵 Finance/Personal"),
+            // Personal Development
+            BookmarkCategory::PersonalDevelopment => write!(f, "🌱 Personal Development"),
             // General Categories
-            BookmarkCategory::Development => write!(f, "🛠️  Development"),
             BookmarkCategory::Social => write!(f, "👥 Social"),
             BookmarkCategory::News => write!(f, "📰 News"),
             BookmarkCategory::Shopping => write!(f, "🛒 Shopping"),
@@ -71,7 +126,6 @@ impl std::fmt::Display for BookmarkCategory {
             BookmarkCategory::Education => write!(f, "📚 Education"),
             BookmarkCategory::Reference => write!(f, "📖 Reference"),
             BookmarkCategory::Tools => write!(f, "🔧 Tools"),
-            BookmarkCategory::Finance => write!(f, "💰 Finance"),
             BookmarkCategory::Health => write!(f, "🏥 Health"),
             BookmarkCategory::Travel => write!(f, "✈️  Travel"),
             BookmarkCategory::Food => write!(f, "🍕 Food"),
@@ -101,8 +155,34 @@ impl BookmarkCategory {
             BookmarkCategory::AIComputerVision => "AI-ML/Computer Vision",
             BookmarkCategory::AINLP => "AI-ML/NLP",
             BookmarkCategory::AIResearch => "AI-ML/Research",
+            // Development Subcategories
+            BookmarkCategory::DevGeneral => "Development/General",
+            BookmarkCategory::DevReact => "Development/React",
+            BookmarkCategory::DevPython => "Development/Python",
+            BookmarkCategory::DevJava => "Development/Java",
+            BookmarkCategory::DevRust => "Development/Rust",
+            BookmarkCategory::DevJavaScript => "Development/JavaScript",
+            BookmarkCategory::DevTypeScript => "Development/TypeScript",
+            BookmarkCategory::DevCSS => "Development/CSS",
+            BookmarkCategory::DevKubernetes => "Development/Kubernetes",
+            BookmarkCategory::DevDocker => "Development/Docker",
+            BookmarkCategory::DevPostgres => "Development/PostgreSQL",
+            BookmarkCategory::DevDatabase => "Development/Database",
+            BookmarkCategory::DevAWS => "Development/AWS",
+            BookmarkCategory::DevServerless => "Development/Serverless",
+            BookmarkCategory::DevWebTech => "Development/WebTech",
+            BookmarkCategory::DevMobile => "Development/Mobile",
+            BookmarkCategory::DevGit => "Development/Git",
+            BookmarkCategory::DevDevOps => "Development/DevOps",
+            BookmarkCategory::DevAPI => "Development/API",
+            // Finance Subcategories
+            BookmarkCategory::FinanceGeneral => "Finance/General",
+            BookmarkCategory::FinanceCrypto => "Finance/Crypto",
+            BookmarkCategory::FinanceTrading => "Finance/Trading",
+            BookmarkCategory::FinancePersonal => "Finance/Personal",
+            // Personal Development
+            BookmarkCategory::PersonalDevelopment => "Personal Development",
             // General Categories
-            BookmarkCategory::Development => "Development",
             BookmarkCategory::Social => "Social Media",
             BookmarkCategory::News => "News",
             BookmarkCategory::Shopping => "Shopping",
@@ -110,7 +190,6 @@ impl BookmarkCategory {
             BookmarkCategory::Education => "Education",
             BookmarkCategory::Reference => "Reference",
             BookmarkCategory::Tools => "Tools & Utilities",
-            BookmarkCategory::Finance => "Finance",
             BookmarkCategory::Health => "Health",
             BookmarkCategory::Travel => "Travel",
             BookmarkCategory::Food => "Food & Recipes",
@@ -437,50 +516,226 @@ impl BookmarkCategory {
         }
 
         // ============================================
-        // General Categories
+        // Finance Subcategories (check before Development)
         // ============================================
 
-        // Development
-        if url_lower.contains("github.com")
-            || url_lower.contains("gitlab.com")
-            || url_lower.contains("bitbucket.org")
-            || url_lower.contains("stackoverflow.com")
-            || url_lower.contains("stackexchange.com")
-            || url_lower.contains("developer.")
-            || url_lower.contains("docs.")
-            || url_lower.contains("npmjs.com")
-            || url_lower.contains("crates.io")
-            || url_lower.contains("pypi.org")
-            || url_lower.contains("hub.docker.com")
-            || url_lower.contains("kubernetes.io")
-            || url_lower.contains("rust-lang.org")
-            || url_lower.contains("python.org")
-            || url_lower.contains("nodejs.org")
-            || url_lower.contains("typescriptlang.org")
-            || url_lower.contains("reactjs.org")
-            || url_lower.contains("vuejs.org")
-            || url_lower.contains("angular.io")
-            || url_lower.contains("vercel.com")
-            || url_lower.contains("netlify.com")
-            || url_lower.contains("heroku.com")
-            || url_lower.contains("aws.amazon.com")
-            || url_lower.contains("cloud.google.com")
-            || url_lower.contains("azure.microsoft.com")
-            || url_lower.contains("codepen.io")
-            || url_lower.contains("codesandbox.io")
-            || url_lower.contains("replit.com")
-            || url_lower.contains("jsfiddle.net")
-            || url_lower.contains("medium.com") && combined.contains("programming")
-            || url_lower.contains("dev.to")
-            || url_lower.contains("hashnode.com")
-            || combined.contains("api")
-            || combined.contains("documentation")
-            || combined.contains("tutorial")
+        // Crypto (check first - most specific)
+        if url_lower.contains("coinbase.com")
+            || url_lower.contains("binance.com")
+            || url_lower.contains("kraken.com")
+            || url_lower.contains("gemini.com")
+            || url_lower.contains("ftx.com")
+            || url_lower.contains("kucoin.com")
+            || url_lower.contains("huobi")
+            || url_lower.contains("okx.com")
+            || url_lower.contains("bybit.com")
+            || url_lower.contains("bitstamp")
+            || url_lower.contains("bitfinex")
+            || url_lower.contains("bitmex")
+            || url_lower.contains("coinmarketcap.com")
+            || url_lower.contains("coingecko.com")
+            || url_lower.contains("tradingview.com")
+            || url_lower.contains("dextools.io")
+            || url_lower.contains("etherscan.io")
+            || url_lower.contains("bscscan.com")
+            || url_lower.contains("polygonscan.com")
+            || url_lower.contains("uniswap")
+            || url_lower.contains("sushiswap")
+            || url_lower.contains("pancakeswap")
+            || url_lower.contains("metamask.io")
+            || url_lower.contains("opensea.io")
+            || url_lower.contains("rarible.com")
+            || url_lower.contains("looksrare")
+            || combined.contains("bitcoin")
+            || combined.contains("btc ")
+            || combined.contains("ethereum")
+            || combined.contains("eth ")
+            || combined.contains("crypto")
+            || combined.contains("blockchain")
+            || combined.contains("defi")
+            || combined.contains("nft")
+            || combined.contains("ico ")
+            || combined.contains("token sale")
+            || combined.contains("airdrop")
+            || combined.contains("staking")
+            || combined.contains("yield farming")
+            || combined.contains("liquidity pool")
+            || combined.contains("smart contract")
+            || combined.contains("wallet")
+                && (combined.contains("crypto") || combined.contains("bitcoin") || combined.contains("ethereum"))
+            || combined.contains("exchange")
+                && (combined.contains("crypto") || combined.contains("coin") || combined.contains("token"))
+            || combined.contains("altcoin")
+            || combined.contains("memecoin")
+            || combined.contains("chart pattern")
+            || combined.contains("candlestick")
+            || combined.contains("trading signal")
+            || combined.contains("technical analysis")
+                && (combined.contains("crypto") || combined.contains("coin"))
+            || combined.contains("solana")
+            || combined.contains("cardano")
+            || combined.contains("polkadot")
+            || combined.contains("avalanche")
+            || combined.contains("polygon")
+                && !combined.contains("css")
+            || combined.contains("arbitrum")
+            || combined.contains("optimism")
+            || combined.contains("layer 2")
+            || combined.contains("web3")
+            || combined.contains("dapp")
+            || combined.contains("decentralized")
         {
-            return BookmarkCategory::Development;
+            return BookmarkCategory::FinanceCrypto;
         }
 
-        // Social Media
+        // Trading (stocks, forex, etc.)
+        if url_lower.contains("robinhood.com")
+            || url_lower.contains("etrade.com")
+            || url_lower.contains("tdameritrade.com")
+            || url_lower.contains("thinkorswim")
+            || url_lower.contains("interactivebrokers")
+            || url_lower.contains("stockcharts.com")
+            || url_lower.contains("finviz.com")
+            || url_lower.contains("yahoo.com/finance")
+            || url_lower.contains("finance.yahoo.com")
+            || url_lower.contains("marketwatch.com")
+            || url_lower.contains("seekingalpha.com")
+            || url_lower.contains("investopedia.com")
+            || url_lower.contains("morningstar.com")
+            || combined.contains("stock market")
+            || combined.contains("stock trading")
+            || combined.contains("forex")
+            || combined.contains("options trading")
+            || combined.contains("futures trading")
+            || combined.contains("dividend")
+            || combined.contains("portfolio")
+                && combined.contains("invest")
+            || combined.contains("market analysis")
+            || combined.contains("bull market")
+            || combined.contains("bear market")
+            || combined.contains("earnings report")
+            || combined.contains("etf ")
+            || combined.contains("index fund")
+        {
+            return BookmarkCategory::FinanceTrading;
+        }
+
+        // Personal Finance
+        if url_lower.contains("mint.com")
+            || url_lower.contains("ynab.com")
+            || url_lower.contains("personalcapital.com")
+            || url_lower.contains("creditkarma.com")
+            || url_lower.contains("nerdwallet.com")
+            || url_lower.contains("bankrate.com")
+            || combined.contains("budget")
+            || combined.contains("saving money")
+            || combined.contains("retirement")
+            || combined.contains("401k")
+            || combined.contains("ira ")
+            || combined.contains("credit score")
+            || combined.contains("credit card")
+                && !combined.contains("api")
+            || combined.contains("mortgage")
+            || combined.contains("debt")
+            || combined.contains("tax return")
+            || combined.contains("net worth")
+            || combined.contains("financial planning")
+            || combined.contains("emergency fund")
+        {
+            return BookmarkCategory::FinancePersonal;
+        }
+
+        // General Finance (catch-all)
+        if url_lower.contains("bank")
+            || url_lower.contains("paypal.com")
+            || url_lower.contains("venmo.com")
+            || url_lower.contains("fidelity.com")
+            || url_lower.contains("schwab.com")
+            || url_lower.contains("vanguard.com")
+            || url_lower.contains("finance.")
+            || combined.contains("invest")
+                && !combined.contains("investigate")
+            || combined.contains("financial")
+        {
+            return BookmarkCategory::FinanceGeneral;
+        }
+
+        // ============================================
+        // Personal Development (check before Development)
+        // ============================================
+        if combined.contains("habit")
+            || combined.contains("productivity")
+                && !combined.contains("developer")
+                && !combined.contains("tool")
+            || combined.contains("self improvement")
+            || combined.contains("self-improvement")
+            || combined.contains("personal growth")
+            || combined.contains("motivation")
+            || combined.contains("mindset")
+            || combined.contains("goal setting")
+            || combined.contains("time management")
+                && !combined.contains("project")
+            || combined.contains("life hack")
+            || combined.contains("morning routine")
+            || combined.contains("meditation")
+            || combined.contains("mindfulness")
+            || combined.contains("journaling")
+            || combined.contains("gratitude")
+            || combined.contains("stoicism")
+            || combined.contains("atomic habits")
+            || combined.contains("deep work")
+            || combined.contains("getting things done")
+            || combined.contains("gtd ")
+            || combined.contains("pomodoro")
+            || combined.contains("procrastination")
+            || combined.contains("discipline")
+            || combined.contains("self help")
+            || combined.contains("self-help")
+            || combined.contains("memory technique")
+            || combined.contains("speed reading")
+            || combined.contains("learning how to learn")
+            || combined.contains("career growth")
+            || combined.contains("public speaking")
+            || combined.contains("emotional intelligence")
+        {
+            return BookmarkCategory::PersonalDevelopment;
+        }
+
+        // ============================================
+        // Other General Categories (check before Development)
+        // ============================================
+
+        // Shopping (check early to avoid catching in Development)
+        if url_lower.contains("amazon.")
+            || url_lower.contains("ebay.")
+            || url_lower.contains("etsy.com")
+            || url_lower.contains("aliexpress.com")
+            || url_lower.contains("walmart.com")
+            || url_lower.contains("target.com")
+            || url_lower.contains("bestbuy.com")
+            || url_lower.contains("newegg.com")
+            || url_lower.contains("/cart")
+            || url_lower.contains("/checkout")
+            || combined.contains("buy now")
+            || combined.contains("add to cart")
+            || combined.contains("shopping")
+            || combined.contains("discount code")
+            || combined.contains("coupon")
+        {
+            return BookmarkCategory::Shopping;
+        }
+
+        // Video (check early)
+        if url_lower.contains("youtube.com")
+            || url_lower.contains("youtu.be")
+            || url_lower.contains("vimeo.com")
+            || url_lower.contains("dailymotion.com")
+            || url_lower.contains("twitch.tv")
+        {
+            return BookmarkCategory::Video;
+        }
+
+        // Social Media (check early)
         if url_lower.contains("facebook.com")
             || url_lower.contains("twitter.com")
             || url_lower.contains("x.com")
@@ -524,35 +779,382 @@ impl BookmarkCategory {
             return BookmarkCategory::News;
         }
 
-        // Shopping
-        if url_lower.contains("amazon.")
-            || url_lower.contains("ebay.")
-            || url_lower.contains("etsy.com")
-            || url_lower.contains("aliexpress.com")
-            || url_lower.contains("walmart.com")
-            || url_lower.contains("target.com")
-            || url_lower.contains("bestbuy.com")
-            || url_lower.contains("newegg.com")
-            || url_lower.contains("shopify")
-            || url_lower.contains("/cart")
-            || url_lower.contains("/checkout")
-            || url_lower.contains("/shop")
-            || combined.contains("buy")
-            || combined.contains("deal")
-            || combined.contains("discount")
+        // Education
+        if url_lower.contains("coursera.org")
+            || url_lower.contains("udemy.com")
+            || url_lower.contains("edx.org")
+            || url_lower.contains("khanacademy.org")
+            || url_lower.contains("skillshare.com")
+            || url_lower.contains("pluralsight.com")
+            || url_lower.contains("lynda.com")
+            || url_lower.contains("codecademy.com")
+            || url_lower.contains("freecodecamp.org")
+            || url_lower.contains(".edu")
+            || url_lower.contains("learn.")
+            || combined.contains("online course")
+            || combined.contains("free course")
         {
-            return BookmarkCategory::Shopping;
+            return BookmarkCategory::Education;
         }
 
-        // Video
-        if url_lower.contains("youtube.com")
-            || url_lower.contains("youtu.be")
-            || url_lower.contains("vimeo.com")
-            || url_lower.contains("dailymotion.com")
-            || url_lower.contains("twitch.tv")
+        // ============================================
+        // Development Subcategories
+        // ============================================
+
+        // React / React Native
+        if url_lower.contains("reactjs.org")
+            || url_lower.contains("react.dev")
+            || url_lower.contains("reactnative.dev")
+            || combined.contains("react")
+                && (combined.contains("component")
+                    || combined.contains("hook")
+                    || combined.contains("redux")
+                    || combined.contains("nextjs")
+                    || combined.contains("next.js")
+                    || combined.contains("gatsby")
+                    || combined.contains("jsx")
+                    || combined.contains("state management"))
+            || combined.contains("react native")
+            || combined.contains("expo")
+            || url_lower.contains("nextjs.org")
+            || combined.contains("use effect")
+            || combined.contains("usestate")
+            || combined.contains("usememo")
+            || combined.contains("zustand")
+            || combined.contains("tanstack")
+            || combined.contains("react query")
         {
-            return BookmarkCategory::Video;
+            return BookmarkCategory::DevReact;
         }
+
+        // Python
+        if url_lower.contains("python.org")
+            || url_lower.contains("pypi.org")
+            || combined.contains("python")
+                && (combined.contains("pip")
+                    || combined.contains("django")
+                    || combined.contains("flask")
+                    || combined.contains("fastapi")
+                    || combined.contains("pandas")
+                    || combined.contains("numpy")
+                    || combined.contains("jupyter")
+                    || combined.contains("anaconda")
+                    || combined.contains("virtualenv")
+                    || combined.contains("poetry"))
+            || url_lower.contains("django")
+            || url_lower.contains("flask")
+            || url_lower.contains("fastapi")
+            || combined.contains("pydantic")
+            || combined.contains("pytest")
+        {
+            return BookmarkCategory::DevPython;
+        }
+
+        // Rust
+        if url_lower.contains("rust-lang.org")
+            || url_lower.contains("crates.io")
+            || combined.contains("rust")
+                && (combined.contains("cargo")
+                    || combined.contains("rustup")
+                    || combined.contains("tokio")
+                    || combined.contains("actix")
+                    || combined.contains("wasm")
+                    || combined.contains("serde"))
+            || combined.contains("rustacean")
+        {
+            return BookmarkCategory::DevRust;
+        }
+
+        // Java / Kotlin / JVM
+        if combined.contains("java")
+            && (combined.contains("spring")
+                || combined.contains("maven")
+                || combined.contains("gradle")
+                || combined.contains("jvm")
+                || combined.contains("hibernate")
+                || combined.contains("junit"))
+            || combined.contains("kotlin")
+            || url_lower.contains("spring.io")
+            || combined.contains("springboot")
+            || combined.contains("spring boot")
+        {
+            return BookmarkCategory::DevJava;
+        }
+
+        // TypeScript
+        if url_lower.contains("typescriptlang.org")
+            || combined.contains("typescript")
+                && (combined.contains("type")
+                    || combined.contains("interface")
+                    || combined.contains("generic")
+                    || combined.contains("tsc"))
+            || combined.contains(".ts ")
+            || combined.contains(".tsx")
+        {
+            return BookmarkCategory::DevTypeScript;
+        }
+
+        // JavaScript (general)
+        if url_lower.contains("nodejs.org")
+            || url_lower.contains("npmjs.com")
+            || combined.contains("javascript")
+            || combined.contains("node.js")
+            || combined.contains("nodejs")
+            || combined.contains("npm ")
+            || combined.contains("yarn ")
+            || combined.contains("pnpm")
+            || combined.contains("deno")
+            || combined.contains("bun ")
+            || combined.contains("express.js")
+            || combined.contains("expressjs")
+            || combined.contains("es6")
+            || combined.contains("ecmascript")
+            || combined.contains("async await")
+            || combined.contains("promise")
+        {
+            return BookmarkCategory::DevJavaScript;
+        }
+
+        // CSS / Styling
+        if combined.contains("css")
+            || combined.contains("tailwind")
+            || combined.contains("sass")
+            || combined.contains("scss")
+            || combined.contains("less ")
+            || combined.contains("styled-component")
+            || combined.contains("bootstrap")
+            || combined.contains("material ui")
+            || combined.contains("chakra ui")
+            || combined.contains("flexbox")
+            || combined.contains("grid layout")
+            || combined.contains("animation")
+            || combined.contains("responsive design")
+            || url_lower.contains("csswizardry")
+            || url_lower.contains("css-tricks")
+        {
+            return BookmarkCategory::DevCSS;
+        }
+
+        // Kubernetes
+        if url_lower.contains("kubernetes.io")
+            || combined.contains("kubernetes")
+            || combined.contains("k8s")
+            || combined.contains("kubectl")
+            || combined.contains("helm ")
+            || combined.contains("helm chart")
+            || combined.contains("minikube")
+            || combined.contains("kind cluster")
+            || combined.contains("pod ")
+            || combined.contains("deployment") && combined.contains("container")
+            || combined.contains("service mesh")
+            || combined.contains("istio")
+            || combined.contains("ingress")
+        {
+            return BookmarkCategory::DevKubernetes;
+        }
+
+        // Docker
+        if url_lower.contains("docker.com")
+            || url_lower.contains("hub.docker.com")
+            || combined.contains("docker")
+            || combined.contains("dockerfile")
+            || combined.contains("container") && !combined.contains("kubernetes")
+            || combined.contains("docker-compose")
+            || combined.contains("podman")
+        {
+            return BookmarkCategory::DevDocker;
+        }
+
+        // PostgreSQL
+        if url_lower.contains("postgresql.org")
+            || combined.contains("postgresql")
+            || combined.contains("postgres")
+            || combined.contains("psql")
+            || combined.contains("pg_")
+        {
+            return BookmarkCategory::DevPostgres;
+        }
+
+        // Database (general)
+        if combined.contains("mysql")
+            || combined.contains("mongodb")
+            || combined.contains("redis")
+            || combined.contains("elasticsearch")
+            || combined.contains("sqlite")
+            || combined.contains("dynamodb")
+            || combined.contains("cassandra")
+            || combined.contains("sql ")
+            || combined.contains("nosql")
+            || combined.contains("database")
+            || combined.contains("query optimization")
+            || combined.contains("orm ")
+            || combined.contains("prisma")
+            || combined.contains("drizzle")
+        {
+            return BookmarkCategory::DevDatabase;
+        }
+
+        // AWS
+        if url_lower.contains("aws.amazon.com")
+            || combined.contains("aws ")
+            || combined.contains("amazon web services")
+            || combined.contains("lambda") && combined.contains("aws")
+            || combined.contains("ec2")
+            || combined.contains("s3 bucket")
+            || combined.contains("cloudformation")
+            || combined.contains("cloudwatch")
+            || combined.contains("dynamodb")
+            || combined.contains("sqs ")
+            || combined.contains("sns ")
+            || combined.contains("iam ") && combined.contains("aws")
+            || combined.contains("cdk") && combined.contains("aws")
+        {
+            return BookmarkCategory::DevAWS;
+        }
+
+        // Serverless
+        if combined.contains("serverless")
+            || combined.contains("lambda function")
+            || combined.contains("cloud function")
+            || combined.contains("azure function")
+            || combined.contains("vercel") && combined.contains("function")
+            || combined.contains("netlify function")
+            || combined.contains("edge function")
+            || combined.contains("faas")
+            || url_lower.contains("serverless.com")
+        {
+            return BookmarkCategory::DevServerless;
+        }
+
+        // Git
+        if url_lower.contains("github.com")
+            || url_lower.contains("gitlab.com")
+            || url_lower.contains("bitbucket.org")
+            || combined.contains("git ")
+            || combined.contains("gitflow")
+            || combined.contains("pull request")
+            || combined.contains("merge conflict")
+            || combined.contains("branch") && combined.contains("git")
+            || combined.contains("commit") && combined.contains("git")
+            || combined.contains("rebase")
+            || combined.contains("cherry-pick")
+        {
+            return BookmarkCategory::DevGit;
+        }
+
+        // DevOps / CI/CD
+        if combined.contains("devops")
+            || combined.contains("ci/cd")
+            || combined.contains("cicd")
+            || combined.contains("jenkins")
+            || combined.contains("github actions")
+            || combined.contains("gitlab ci")
+            || combined.contains("circleci")
+            || combined.contains("travis ci")
+            || combined.contains("argo")
+            || combined.contains("terraform")
+            || combined.contains("ansible")
+            || combined.contains("puppet")
+            || combined.contains("chef ")
+            || combined.contains("infrastructure as code")
+            || combined.contains("monitoring")
+            || combined.contains("prometheus")
+            || combined.contains("grafana")
+            || combined.contains("datadog")
+            || combined.contains("sonarqube")
+        {
+            return BookmarkCategory::DevDevOps;
+        }
+
+        // Mobile Development
+        if combined.contains("ios ")
+            || combined.contains("android ")
+            || combined.contains("swift")
+            || combined.contains("swiftui")
+            || combined.contains("xcode")
+            || combined.contains("flutter")
+            || combined.contains("dart ")
+            || combined.contains("mobile app")
+            || combined.contains("app store")
+            || combined.contains("play store")
+            || url_lower.contains("developer.apple.com")
+            || url_lower.contains("developer.android.com")
+        {
+            return BookmarkCategory::DevMobile;
+        }
+
+        // Web Tech (general web development)
+        if combined.contains("html")
+            || combined.contains("dom ")
+            || combined.contains("web component")
+            || combined.contains("pwa")
+            || combined.contains("progressive web")
+            || combined.contains("service worker")
+            || combined.contains("websocket")
+            || combined.contains("http")
+            || combined.contains("cors")
+            || combined.contains("oauth")
+            || combined.contains("jwt ")
+            || combined.contains("rest api")
+            || combined.contains("graphql")
+            || combined.contains("grpc")
+            || combined.contains("webpack")
+            || combined.contains("vite")
+            || combined.contains("esbuild")
+            || combined.contains("rollup")
+            || combined.contains("babel")
+            || url_lower.contains("vuejs.org")
+            || url_lower.contains("angular.io")
+            || url_lower.contains("svelte.dev")
+            || combined.contains("vue ")
+            || combined.contains("angular")
+            || combined.contains("svelte")
+        {
+            return BookmarkCategory::DevWebTech;
+        }
+
+        // API Development
+        if combined.contains("api ")
+            || combined.contains("rest ")
+            || combined.contains("openapi")
+            || combined.contains("swagger")
+            || combined.contains("postman")
+            || combined.contains("insomnia")
+            || combined.contains("endpoint")
+            || combined.contains("webhook")
+        {
+            return BookmarkCategory::DevAPI;
+        }
+
+        // General Development (catch-all)
+        if url_lower.contains("stackoverflow.com")
+            || url_lower.contains("stackexchange.com")
+            || url_lower.contains("developer.")
+            || url_lower.contains("docs.")
+            || url_lower.contains("vercel.com")
+            || url_lower.contains("netlify.com")
+            || url_lower.contains("heroku.com")
+            || url_lower.contains("cloud.google.com")
+            || url_lower.contains("azure.microsoft.com")
+            || url_lower.contains("codepen.io")
+            || url_lower.contains("codesandbox.io")
+            || url_lower.contains("replit.com")
+            || url_lower.contains("jsfiddle.net")
+            || url_lower.contains("medium.com") && combined.contains("programming")
+            || url_lower.contains("dev.to")
+            || url_lower.contains("hashnode.com")
+            || combined.contains("documentation")
+            || combined.contains("tutorial")
+            || combined.contains("programming")
+            || combined.contains("coding")
+            || combined.contains("developer")
+        {
+            return BookmarkCategory::DevGeneral;
+        }
+
+        // ============================================
+        // Remaining General Categories
+        // ============================================
 
         // Music
         if url_lower.contains("spotify.com")
@@ -596,27 +1198,6 @@ impl BookmarkCategory {
             return BookmarkCategory::Entertainment;
         }
 
-        // Education
-        if url_lower.contains("coursera.org")
-            || url_lower.contains("udemy.com")
-            || url_lower.contains("edx.org")
-            || url_lower.contains("khanacademy.org")
-            || url_lower.contains("skillshare.com")
-            || url_lower.contains("pluralsight.com")
-            || url_lower.contains("lynda.com")
-            || url_lower.contains("codecademy.com")
-            || url_lower.contains("freecodecamp.org")
-            || url_lower.contains("w3schools.com")
-            || url_lower.contains("mdn")
-            || url_lower.contains(".edu")
-            || url_lower.contains("learn.")
-            || combined.contains("course")
-            || combined.contains("lesson")
-            || combined.contains("tutorial")
-        {
-            return BookmarkCategory::Education;
-        }
-
         // Reference (Wikipedia, dictionaries, etc.)
         if url_lower.contains("wikipedia.org")
             || url_lower.contains("wikimedia.org")
@@ -655,27 +1236,6 @@ impl BookmarkCategory {
             || combined.contains("calculator")
         {
             return BookmarkCategory::Tools;
-        }
-
-        // Finance
-        if url_lower.contains("bank")
-            || url_lower.contains("paypal.com")
-            || url_lower.contains("venmo.com")
-            || url_lower.contains("coinbase.com")
-            || url_lower.contains("binance.com")
-            || url_lower.contains("robinhood.com")
-            || url_lower.contains("fidelity.com")
-            || url_lower.contains("schwab.com")
-            || url_lower.contains("vanguard.com")
-            || url_lower.contains("mint.com")
-            || url_lower.contains("ynab.com")
-            || url_lower.contains("creditkarma.com")
-            || url_lower.contains("finance.")
-            || combined.contains("invest")
-            || combined.contains("stock")
-            || combined.contains("crypto")
-        {
-            return BookmarkCategory::Finance;
         }
 
         // Health
@@ -1228,6 +1788,118 @@ pub fn export_to_markdown(bookmarks: &[Bookmark], output_path: Option<&str>) -> 
     Ok(md)
 }
 
+/// Export bookmarks to Chrome-compatible HTML format (Netscape Bookmark format)
+/// This creates an organized bookmark file that can be imported into Chrome
+pub fn export_to_chrome_html(bookmarks: &[Bookmark], output_path: Option<&str>) -> Result<String> {
+    use std::collections::BTreeMap;
+
+    // Group by category
+    let mut by_category: BTreeMap<String, Vec<&Bookmark>> = BTreeMap::new();
+
+    for bm in bookmarks {
+        let folder = bm.category.folder_name().to_string();
+        by_category.entry(folder).or_default().push(bm);
+    }
+
+    let mut html = String::new();
+
+    // Netscape bookmark file header (required for Chrome import)
+    html.push_str("<!DOCTYPE NETSCAPE-Bookmark-file-1>\n");
+    html.push_str("<!-- This is an automatically generated file.\n");
+    html.push_str("     It will be read and overwritten.\n");
+    html.push_str("     DO NOT EDIT! -->\n");
+    html.push_str("<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n");
+    html.push_str("<TITLE>Bookmarks</TITLE>\n");
+    html.push_str("<H1>Bookmarks</H1>\n");
+    html.push_str("<DL><p>\n");
+
+    // Bookmarks Bar folder (main import target)
+    html.push_str("    <DT><H3 ADD_DATE=\"1\" LAST_MODIFIED=\"1\" PERSONAL_TOOLBAR_FOLDER=\"true\">Bookmarks bar</H3>\n");
+    html.push_str("    <DL><p>\n");
+
+    // Sort categories for consistent output
+    let mut categories: Vec<_> = by_category.keys().collect();
+    categories.sort();
+
+    for category in categories {
+        let bms = &by_category[category];
+
+        // Create a folder for each category
+        html.push_str(&format!(
+            "        <DT><H3 ADD_DATE=\"1\" LAST_MODIFIED=\"1\">{}</H3>\n",
+            html_escape(category)
+        ));
+        html.push_str("        <DL><p>\n");
+
+        // Sort bookmarks within category by name
+        let mut sorted_bms = bms.clone();
+        sorted_bms.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+        for bm in sorted_bms {
+            let escaped_name = html_escape(&bm.name);
+            let escaped_url = html_escape(&bm.url);
+
+            html.push_str(&format!(
+                "            <DT><A HREF=\"{}\" ADD_DATE=\"1\">{}</A>\n",
+                escaped_url, escaped_name
+            ));
+        }
+
+        html.push_str("        </DL><p>\n");
+    }
+
+    // Close Bookmarks bar folder
+    html.push_str("    </DL><p>\n");
+
+    // Close root
+    html.push_str("</DL><p>\n");
+
+    // Statistics comment
+    let total_bookmarks: usize = by_category.values().map(|v| v.len()).sum();
+    let total_categories = by_category.len();
+    html.push_str(&format!(
+        "<!-- Organized {} bookmarks into {} categories -->\n",
+        total_bookmarks, total_categories
+    ));
+
+    if let Some(path) = output_path {
+        fs::write(path, &html).with_context(|| format!("Failed to write to {}", path))?;
+        println!(
+            "\n{} Exported organized bookmarks to: {}",
+            "✅".green(),
+            path.cyan()
+        );
+        println!("\n{} To import into Chrome:", "📋".cyan());
+        println!(
+            "   1. Open Chrome and go to {} (or Cmd+Shift+O)",
+            "chrome://bookmarks".yellow()
+        );
+        println!("   2. Click the three-dot menu (⋮) in the top right");
+        println!(
+            "   3. Select {} → {}",
+            "Import bookmarks".yellow(),
+            "Choose file".yellow()
+        );
+        println!("   4. Select the exported HTML file");
+        println!(
+            "\n{} Your bookmarks will be organized into {} category folders",
+            "💡".yellow(),
+            total_categories.to_string().green()
+        );
+    }
+
+    Ok(html)
+}
+
+/// Escape HTML special characters
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 /// Simple date/time function (avoiding chrono dependency)
 fn chrono_lite_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1246,12 +1918,13 @@ fn chrono_lite_now() -> String {
     format!("{}-{:02}-{:02}", years, months.min(12), day.min(31))
 }
 
-/// Truncate a string to a maximum length
+/// Truncate a string to a maximum length (handles UTF-8 properly)
 fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     }
 }
 
@@ -1272,4 +1945,466 @@ pub fn interactive_organize(bookmarks: &[Bookmark]) -> Result<Vec<OrganizeSugges
 
     // For now, return all suggestions - interactive mode would be implemented similarly to organizer.rs
     Ok(suggestions)
+}
+
+/// Entry for dead links table
+#[derive(Tabled, Clone)]
+pub struct DeadLinkEntry {
+    #[tabled(rename = "Title")]
+    pub title: String,
+    #[tabled(rename = "URL")]
+    pub url: String,
+    #[tabled(rename = "Status")]
+    pub status: String,
+    #[tabled(rename = "Folder")]
+    pub folder: String,
+}
+
+/// Check if a URL is dead (returns status code or error)
+pub fn check_url_status(url: &str) -> (bool, String) {
+    // Skip non-http URLs
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return (true, "skipped".to_string());
+    }
+
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return (false, format!("client error: {}", e)),
+    };
+
+    match client.head(url).send() {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() || status.is_redirection() {
+                (true, status.to_string())
+            } else if status == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+                // Some servers don't allow HEAD, try GET
+                match client.get(url).send() {
+                    Ok(resp) => {
+                        let s = resp.status();
+                        (s.is_success() || s.is_redirection(), s.to_string())
+                    }
+                    Err(e) => (false, format!("error: {}", e)),
+                }
+            } else {
+                (false, status.to_string())
+            }
+        }
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("dns") || err_str.contains("resolve") {
+                (false, "DNS error".to_string())
+            } else if err_str.contains("timeout") {
+                (false, "timeout".to_string())
+            } else if err_str.contains("connection") {
+                (false, "connection error".to_string())
+            } else {
+                (false, format!("error: {}", truncate_string(&err_str, 30)))
+            }
+        }
+    }
+}
+
+/// Check for dead links in bookmarks (with parallel processing)
+pub fn find_dead_links(bookmarks: &[Bookmark], verbose: bool) -> Vec<DeadLinkEntry> {
+    let total = bookmarks.len();
+    let checked = Arc::new(AtomicUsize::new(0));
+    let dead_count = Arc::new(AtomicUsize::new(0));
+
+    println!(
+        "{} Checking {} bookmarks for dead links (this may take a while)...\n",
+        "🔍".cyan(),
+        total.to_string().yellow()
+    );
+
+    let dead_links: Vec<DeadLinkEntry> = bookmarks
+        .par_iter()
+        .filter_map(|bookmark| {
+            let current = checked.fetch_add(1, Ordering::SeqCst) + 1;
+
+            // Progress indicator every 50 bookmarks
+            if current % 50 == 0 || current == total {
+                print!(
+                    "\r{} Progress: {}/{} checked, {} dead found",
+                    "⏳".cyan(),
+                    current.to_string().yellow(),
+                    total.to_string().yellow(),
+                    dead_count.load(Ordering::SeqCst).to_string().red()
+                );
+                std::io::Write::flush(&mut std::io::stdout()).ok();
+            }
+
+            let (is_alive, status) = check_url_status(&bookmark.url);
+
+            if verbose && !is_alive {
+                println!(
+                    "\n  {} {} - {}",
+                    "❌".red(),
+                    truncate_string(&bookmark.name, 40),
+                    status.red()
+                );
+            }
+
+            if !is_alive && status != "skipped" {
+                dead_count.fetch_add(1, Ordering::SeqCst);
+                Some(DeadLinkEntry {
+                    title: truncate_string(&bookmark.name, 40),
+                    url: truncate_string(&bookmark.url, 50),
+                    status,
+                    folder: truncate_string(&bookmark.folder_path, 25),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    println!("\n"); // Clear the progress line
+    dead_links
+}
+
+/// Duplicate bookmark info for removal
+#[derive(Clone, Debug)]
+pub struct DuplicateGroup {
+    pub url: String,
+    pub bookmarks: Vec<BookmarkInfo>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BookmarkInfo {
+    pub id: String,
+    pub name: String,
+    pub folder_path: String,
+}
+
+/// Find duplicate bookmark groups with full info
+pub fn find_duplicate_groups(bookmarks: &[Bookmark]) -> Vec<DuplicateGroup> {
+    let mut url_map: HashMap<String, Vec<BookmarkInfo>> = HashMap::new();
+
+    for bookmark in bookmarks {
+        url_map
+            .entry(bookmark.url.clone())
+            .or_default()
+            .push(BookmarkInfo {
+                id: bookmark.id.clone(),
+                name: bookmark.name.clone(),
+                folder_path: bookmark.folder_path.clone(),
+            });
+    }
+
+    url_map
+        .into_iter()
+        .filter(|(_, bms)| bms.len() > 1)
+        .map(|(url, bookmarks)| DuplicateGroup { url, bookmarks })
+        .collect()
+}
+
+/// Remove duplicates from the bookmarks file (keeps the first occurrence)
+pub fn remove_duplicates(dry_run: bool, interactive: bool) -> Result<usize> {
+    use crossterm::{
+        cursor,
+        event::{self, Event, KeyCode},
+        execute,
+        terminal::{self, ClearType},
+    };
+    use std::io::{Write, stdout};
+
+    let path = get_chrome_bookmarks_path()?;
+    let content = fs::read_to_string(&path)?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)?;
+
+    // Parse bookmarks to find duplicates
+    let (bookmarks, _) = parse_bookmarks()?;
+    let duplicate_groups = find_duplicate_groups(&bookmarks);
+
+    if duplicate_groups.is_empty() {
+        println!("{}", "No duplicate bookmarks found!".green());
+        return Ok(0);
+    }
+
+    println!(
+        "\n{} Found {} duplicate URL groups ({} total duplicate entries)\n",
+        "🔍".cyan(),
+        duplicate_groups.len().to_string().yellow(),
+        duplicate_groups
+            .iter()
+            .map(|g| g.bookmarks.len() - 1)
+            .sum::<usize>()
+            .to_string()
+            .yellow()
+    );
+
+    // Collect IDs to remove (keep first occurrence, remove rest)
+    let mut ids_to_remove: HashSet<String> = HashSet::new();
+    let mut removal_details: Vec<(String, String, String)> = Vec::new(); // (url, name, folder)
+
+    for group in &duplicate_groups {
+        // Skip the first one (keep it), remove the rest
+        for bookmark in group.bookmarks.iter().skip(1) {
+            ids_to_remove.insert(bookmark.id.clone());
+            removal_details.push((
+                truncate_string(&group.url, 50),
+                truncate_string(&bookmark.name, 30),
+                truncate_string(&bookmark.folder_path, 25),
+            ));
+        }
+    }
+
+    if interactive {
+        println!("{}", "Duplicates to be removed:".bold().cyan());
+        println!("{}", "─".repeat(80).dimmed());
+
+        for (i, (url, name, folder)) in removal_details.iter().enumerate().take(20) {
+            println!(
+                "  {}. {} - {} ({})",
+                (i + 1).to_string().yellow(),
+                name.cyan(),
+                url.dimmed(),
+                folder.magenta()
+            );
+        }
+
+        if removal_details.len() > 20 {
+            println!(
+                "  ... and {} more",
+                (removal_details.len() - 20).to_string().yellow()
+            );
+        }
+
+        println!("\n{}", "─".repeat(80).dimmed());
+        println!(
+            "\n{} {} duplicates will be removed (keeping first occurrence of each URL)",
+            "⚠️".yellow(),
+            ids_to_remove.len().to_string().red()
+        );
+        print!(
+            "\n{} Are you sure you want to proceed? [y/N]: ",
+            "❓".cyan()
+        );
+        stdout().flush()?;
+
+        terminal::enable_raw_mode()?;
+        let confirmed = loop {
+            if let Event::Key(key_event) = event::read()? {
+                match key_event.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => break true,
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Enter => {
+                        break false;
+                    }
+                    _ => {}
+                }
+            }
+        };
+        terminal::disable_raw_mode()?;
+        println!();
+
+        if !confirmed {
+            println!("{}", "Operation cancelled.".yellow());
+            return Ok(0);
+        }
+    }
+
+    if dry_run {
+        println!("\n{} Dry run - no changes made", "📋".cyan());
+        println!("Would remove {} duplicate bookmarks:", ids_to_remove.len());
+        for (url, name, folder) in removal_details.iter().take(10) {
+            println!("  {} {} ({})", "•".red(), name, folder);
+        }
+        if removal_details.len() > 10 {
+            println!("  ... and {} more", removal_details.len() - 10);
+        }
+        return Ok(ids_to_remove.len());
+    }
+
+    // Create backup
+    let backup_path = format!("{}.backup", path.display());
+    fs::copy(&path, &backup_path)?;
+    println!("{} Backup created: {}", "💾".green(), backup_path.cyan());
+
+    // Remove duplicates from JSON structure
+    let removed_count = remove_bookmarks_by_id(&mut json, &ids_to_remove);
+
+    // Write back to file
+    let new_content = serde_json::to_string_pretty(&json)?;
+    fs::write(&path, new_content)?;
+
+    println!(
+        "\n{} Removed {} duplicate bookmarks",
+        "✅".green(),
+        removed_count.to_string().yellow()
+    );
+    println!("{} Restart Chrome to see the changes", "💡".yellow());
+
+    Ok(removed_count)
+}
+
+/// Recursively remove bookmarks by ID from JSON structure
+fn remove_bookmarks_by_id(json: &mut serde_json::Value, ids_to_remove: &HashSet<String>) -> usize {
+    let mut removed = 0;
+
+    if let Some(obj) = json.as_object_mut() {
+        if let Some(roots) = obj.get_mut("roots") {
+            if let Some(roots_obj) = roots.as_object_mut() {
+                for (_key, value) in roots_obj.iter_mut() {
+                    removed += remove_from_node(value, ids_to_remove);
+                }
+            }
+        }
+    }
+
+    removed
+}
+
+fn remove_from_node(node: &mut serde_json::Value, ids_to_remove: &HashSet<String>) -> usize {
+    let mut removed = 0;
+
+    if let Some(obj) = node.as_object_mut() {
+        if let Some(children) = obj.get_mut("children") {
+            if let Some(children_arr) = children.as_array_mut() {
+                // First, recursively process children of folders
+                for child in children_arr.iter_mut() {
+                    removed += remove_from_node(child, ids_to_remove);
+                }
+
+                // Then remove marked bookmarks
+                let original_len = children_arr.len();
+                children_arr.retain(|child| {
+                    if let Some(id) = child.get("id").and_then(|i| i.as_str()) {
+                        !ids_to_remove.contains(id)
+                    } else {
+                        true
+                    }
+                });
+                removed += original_len - children_arr.len();
+            }
+        }
+    }
+
+    removed
+}
+
+/// Remove dead links from bookmarks
+pub fn remove_dead_links(
+    dead_links: &[DeadLinkEntry],
+    dry_run: bool,
+    interactive: bool,
+) -> Result<usize> {
+    use crossterm::{
+        event::{self, Event, KeyCode},
+        terminal,
+    };
+    use std::io::{Write, stdout};
+
+    if dead_links.is_empty() {
+        println!("{}", "No dead links to remove!".green());
+        return Ok(0);
+    }
+
+    let path = get_chrome_bookmarks_path()?;
+    let content = fs::read_to_string(&path)?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)?;
+
+    // We need to find bookmark IDs by URL
+    let (bookmarks, _) = parse_bookmarks()?;
+    let dead_urls: HashSet<String> = dead_links.iter().map(|d| d.url.clone()).collect();
+
+    let ids_to_remove: HashSet<String> = bookmarks
+        .iter()
+        .filter(|b| {
+            dead_urls.iter().any(|dead_url| {
+                b.url.contains(dead_url.trim_end_matches("..."))
+                    || dead_url.contains(
+                        &truncate_string(&b.url, 50)
+                            .trim_end_matches("...")
+                            .to_string(),
+                    )
+            })
+        })
+        .map(|b| b.id.clone())
+        .collect();
+
+    if interactive {
+        println!("\n{}", "Dead links to be removed:".bold().cyan());
+        println!("{}", "─".repeat(80).dimmed());
+
+        for (i, entry) in dead_links.iter().enumerate().take(20) {
+            println!(
+                "  {}. {} - {} [{}]",
+                (i + 1).to_string().yellow(),
+                entry.title.cyan(),
+                entry.status.red(),
+                entry.folder.dimmed()
+            );
+        }
+
+        if dead_links.len() > 20 {
+            println!(
+                "  ... and {} more",
+                (dead_links.len() - 20).to_string().yellow()
+            );
+        }
+
+        println!("\n{}", "─".repeat(80).dimmed());
+        println!(
+            "\n{} {} dead links will be removed",
+            "⚠️".yellow(),
+            dead_links.len().to_string().red()
+        );
+        print!(
+            "\n{} Are you sure you want to proceed? [y/N]: ",
+            "❓".cyan()
+        );
+        stdout().flush()?;
+
+        terminal::enable_raw_mode()?;
+        let confirmed = loop {
+            if let Event::Key(key_event) = event::read()? {
+                match key_event.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => break true,
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Enter => {
+                        break false;
+                    }
+                    _ => {}
+                }
+            }
+        };
+        terminal::disable_raw_mode()?;
+        println!();
+
+        if !confirmed {
+            println!("{}", "Operation cancelled.".yellow());
+            return Ok(0);
+        }
+    }
+
+    if dry_run {
+        println!("\n{} Dry run - no changes made", "📋".cyan());
+        println!("Would remove {} dead links", dead_links.len());
+        return Ok(dead_links.len());
+    }
+
+    // Create backup
+    let backup_path = format!("{}.backup", path.display());
+    fs::copy(&path, &backup_path)?;
+    println!("{} Backup created: {}", "💾".green(), backup_path.cyan());
+
+    // Remove dead links from JSON structure
+    let removed_count = remove_bookmarks_by_id(&mut json, &ids_to_remove);
+
+    // Write back to file
+    let new_content = serde_json::to_string_pretty(&json)?;
+    fs::write(&path, new_content)?;
+
+    println!(
+        "\n{} Removed {} dead links",
+        "✅".green(),
+        removed_count.to_string().yellow()
+    );
+    println!("{} Restart Chrome to see the changes", "💡".yellow());
+
+    Ok(removed_count)
 }
