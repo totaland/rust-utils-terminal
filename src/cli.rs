@@ -4,8 +4,8 @@ use colored::Colorize;
 
 use crate::{
     clean_node_modules, display_aliases_table, display_cleaned_table, display_functions_table,
-    display_packages_table, find_packages_with_version_greater_than, get_all_aliases,
-    get_all_functions,
+    display_organize_table, display_packages_table, find_packages_with_version_greater_than,
+    get_all_aliases, get_all_functions, organize_files,
 };
 
 pub fn build_cli() -> ClapCommand {
@@ -18,6 +18,7 @@ MODES:
   functions - Show shell functions with documentation from config files  
   packages  - Find package versions greater than a specified threshold
   clean     - Remove all node_modules directories recursively (parallel)
+  organize  - Organize files in non-development folders by type
 
 EXAMPLES:
   shell-explorer                                    # Show all aliases (default)
@@ -26,14 +27,16 @@ EXAMPLES:
   shell-explorer --mode packages --package typescript --min-version 4.0.0 --path ./src
   shell-explorer --mode clean --path ./projects    # Remove all node_modules
   shell-explorer --mode clean --dry-run            # Preview what would be removed
-  shell-explorer --mode clean --interactive        # Select which node_modules to delete")
+  shell-explorer --mode clean --interactive        # Select which node_modules to delete
+  shell-explorer --mode organize --path ~/Downloads # Organize files in Downloads
+  shell-explorer --mode organize --dry-run          # Preview organization")
         .version("1.0.0")
         .arg(
             Arg::new("mode")
                 .short('m')
                 .long("mode")
                 .value_name("MODE")
-                .help("Mode: 'aliases' (default), 'functions', 'packages', or 'clean'")
+                .help("Mode: 'aliases' (default), 'functions', 'packages', 'clean', or 'organize'")
                 .default_value("aliases")
         )
         .arg(
@@ -243,6 +246,22 @@ pub fn handle_clean_mode(matches: &ArgMatches) -> Result<()> {
     if !results.is_empty() && !interactive {
         let use_colors = !matches.get_flag("plain");
         display_cleaned_table(results, use_colors)?;
+    }
+
+    Ok(())
+}
+
+pub fn handle_organize_mode(matches: &ArgMatches) -> Result<()> {
+    let search_path = matches.get_one::<String>("path").map(|s| s.as_str());
+    let dry_run = matches.get_flag("dry_run");
+    let verbose = matches.get_flag("verbose");
+    let interactive = matches.get_flag("interactive");
+
+    let results = organize_files(search_path, dry_run, verbose, interactive)?;
+
+    if !results.is_empty() && !interactive {
+        let use_colors = !matches.get_flag("plain");
+        display_organize_table(results, use_colors)?;
     }
 
     Ok(())
