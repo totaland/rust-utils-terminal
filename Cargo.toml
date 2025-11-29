@@ -19,3 +19,5 @@ anyhow = "1.0"
 regex = "1.10"
 rayon = "1.8"
 crossterm = "0.28"
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["blocking"] }

@@ -3,9 +3,13 @@ use clap::{Arg, ArgMatches, Command as ClapCommand};
 use colored::Colorize;
 
 use crate::{
-    clean_node_modules, display_aliases_table, display_cleaned_table, display_functions_table,
-    display_organize_table, display_packages_table, find_packages_with_version_greater_than,
-    get_all_aliases, get_all_functions, organize_files,
+    clean_node_modules, display_aliases_table, display_bookmarks_table,
+    display_category_stats_table, display_cleaned_table, display_domain_stats_table,
+    display_duplicates_table, display_functions_table, display_organize_suggestions_table,
+    display_organize_table, display_packages_table, export_to_markdown, filter_by_category,
+    filter_by_domain, find_duplicates, find_packages_with_version_greater_than, get_all_aliases,
+    get_all_functions, get_bookmark_stats, get_category_stats, get_domain_stats,
+    get_organize_suggestions, organize_files, parse_bookmarks, search_bookmarks,
 };
 
 pub fn build_cli() -> ClapCommand {
@@ -19,6 +23,16 @@ MODES:
   packages  - Find package versions greater than a specified threshold
   clean     - Remove all node_modules directories recursively (parallel)
   organize  - Organize files in non-development folders by type
+  bookmarks - Organize and analyze Chrome bookmarks
+
+BOOKMARK SUBCOMMANDS:
+  bookmarks stats      - Show bookmark statistics (domains, categories, duplicates)
+  bookmarks duplicates - Find duplicate bookmarks
+  bookmarks domains    - Show bookmarks grouped by domain
+  bookmarks categories - Show bookmarks grouped by category
+  bookmarks search     - Search bookmarks by query
+  bookmarks organize   - Get organization suggestions
+  bookmarks export     - Export bookmarks to markdown
 
 EXAMPLES:
   shell-explorer                                    # Show all aliases (default)
@@ -29,15 +43,60 @@ EXAMPLES:
   shell-explorer --mode clean --dry-run            # Preview what would be removed
   shell-explorer --mode clean --interactive        # Select which node_modules to delete
   shell-explorer --mode organize --path ~/Downloads # Organize files in Downloads
-  shell-explorer --mode organize --dry-run          # Preview organization")
+  shell-explorer --mode organize --dry-run          # Preview organization
+  shell-explorer --mode bookmarks --subcommand stats      # Show bookmark stats
+  shell-explorer --mode bookmarks --subcommand duplicates # Find duplicates
+  shell-explorer --mode bookmarks --subcommand search --query github  # Search bookmarks
+  shell-explorer --mode bookmarks --subcommand export --output bookmarks.md")
         .version("1.0.0")
         .arg(
             Arg::new("mode")
                 .short('m')
                 .long("mode")
                 .value_name("MODE")
-                .help("Mode: 'aliases' (default), 'functions', 'packages', 'clean', or 'organize'")
+                .help("Mode: 'aliases' (default), 'functions', 'packages', 'clean', 'organize', or 'bookmarks'")
                 .default_value("aliases")
+        )
+        .arg(
+            Arg::new("subcommand")
+                .long("subcommand")
+                .value_name("SUBCOMMAND")
+                .help("Subcommand for bookmarks mode: 'stats', 'duplicates', 'domains', 'categories', 'search', 'organize', 'export'")
+        )
+        .arg(
+            Arg::new("query")
+                .short('q')
+                .long("query")
+                .value_name("QUERY")
+                .help("Search query for bookmarks search mode")
+        )
+        .arg(
+            Arg::new("category")
+                .short('c')
+                .long("category")
+                .value_name("CATEGORY")
+                .help("Filter by category (for bookmarks mode)")
+        )
+        .arg(
+            Arg::new("domain")
+                .short('d')
+                .long("domain")
+                .value_name("DOMAIN")
+                .help("Filter by domain (for bookmarks mode)")
+        )
+        .arg(
+            Arg::new("output")
+                .short('o')
+                .long("output")
+                .value_name("OUTPUT_FILE")
+                .help("Output file path (for bookmarks export)")
+        )
+        .arg(
+            Arg::new("limit")
+                .short('l')
+                .long("limit")
+                .value_name("LIMIT")
+                .help("Limit number of results")
         )
         .arg(
             Arg::new("filter")
@@ -262,6 +321,242 @@ pub fn handle_organize_mode(matches: &ArgMatches) -> Result<()> {
     if !results.is_empty() && !interactive {
         let use_colors = !matches.get_flag("plain");
         display_organize_table(results, use_colors)?;
+    }
+
+    Ok(())
+}
+
+pub fn handle_bookmarks_mode(matches: &ArgMatches) -> Result<()> {
+    let subcommand = matches
+        .get_one::<String>("subcommand")
+        .map(|s| s.as_str())
+        .unwrap_or("stats");
+    let use_colors = !matches.get_flag("plain");
+    let limit = matches
+        .get_one::<String>("limit")
+        .and_then(|s| s.parse::<usize>().ok());
+
+    // Parse bookmarks
+    println!("{} Loading Chrome bookmarks...", "📖".cyan());
+    let (bookmarks, folders) = parse_bookmarks()?;
+    println!(
+        "{} Found {} bookmarks in {} folders\n",
+        "✅".green(),
+        bookmarks.len().to_string().yellow(),
+        folders.len().to_string().yellow()
+    );
+
+    match subcommand {
+        "stats" => {
+            let stats = get_bookmark_stats(&bookmarks, &folders);
+
+            println!("{}", "📊 Bookmark Statistics".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+            println!(
+                "  {} Total bookmarks: {}",
+                "📑".cyan(),
+                stats.total_bookmarks.to_string().yellow()
+            );
+            println!(
+                "  {} Total folders: {}",
+                "📁".cyan(),
+                stats.total_folders.to_string().yellow()
+            );
+            println!(
+                "  {} Duplicate URLs: {}",
+                "🔄".cyan(),
+                stats.duplicates.to_string().yellow()
+            );
+            println!(
+                "  {} Empty folders: {}",
+                "📂".cyan(),
+                stats.empty_folders.to_string().yellow()
+            );
+            println!(
+                "  {} Deeply nested folders (>3 levels): {}",
+                "🪆".cyan(),
+                stats.deep_nesting_count.to_string().yellow()
+            );
+            println!(
+                "  {} Unique domains: {}",
+                "🌐".cyan(),
+                stats.by_domain.len().to_string().yellow()
+            );
+
+            // Show top domains
+            println!("\n{}", "🔝 Top 10 Domains".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+            let domain_stats = get_domain_stats(&bookmarks);
+            let top_domains: Vec<_> = domain_stats.into_iter().take(10).collect();
+            display_domain_stats_table(top_domains, use_colors)?;
+
+            // Show category breakdown
+            println!("\n{}", "📂 Category Breakdown".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+            let category_stats = get_category_stats(&bookmarks);
+            display_category_stats_table(category_stats, use_colors)?;
+        }
+        "duplicates" => {
+            println!("{}", "🔄 Duplicate Bookmarks".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            let duplicates = find_duplicates(&bookmarks);
+            if duplicates.is_empty() {
+                println!("{}", "No duplicate bookmarks found!".green());
+            } else {
+                let limited: Vec<_> = if let Some(lim) = limit {
+                    duplicates.into_iter().take(lim).collect()
+                } else {
+                    duplicates
+                };
+                let count = limited.len();
+                display_duplicates_table(limited, use_colors)?;
+                println!(
+                    "\n{} Found {} duplicate URL groups",
+                    "📊".cyan(),
+                    count.to_string().yellow()
+                );
+            }
+        }
+        "domains" => {
+            println!("{}", "🌐 Bookmarks by Domain".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            if let Some(domain_filter) = matches.get_one::<String>("domain") {
+                let filtered = filter_by_domain(&bookmarks, domain_filter);
+                if filtered.is_empty() {
+                    println!(
+                        "{}",
+                        format!("No bookmarks found for domain: {}", domain_filter).yellow()
+                    );
+                } else {
+                    let count = filtered.len();
+                    display_bookmarks_table(filtered, use_colors)?;
+                    println!(
+                        "\n{} Found {} bookmarks for '{}'",
+                        "📊".cyan(),
+                        count.to_string().yellow(),
+                        domain_filter.cyan()
+                    );
+                }
+            } else {
+                let domain_stats = get_domain_stats(&bookmarks);
+                let limited: Vec<_> = if let Some(lim) = limit {
+                    domain_stats.into_iter().take(lim).collect()
+                } else {
+                    domain_stats.into_iter().take(30).collect()
+                };
+                display_domain_stats_table(limited, use_colors)?;
+            }
+        }
+        "categories" => {
+            println!("{}", "📂 Bookmarks by Category".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            if let Some(category_filter) = matches.get_one::<String>("category") {
+                let filtered = filter_by_category(&bookmarks, category_filter);
+                if filtered.is_empty() {
+                    println!(
+                        "{}",
+                        format!("No bookmarks found for category: {}", category_filter).yellow()
+                    );
+                } else {
+                    let count = filtered.len();
+                    display_bookmarks_table(filtered, use_colors)?;
+                    println!(
+                        "\n{} Found {} bookmarks in category '{}'",
+                        "📊".cyan(),
+                        count.to_string().yellow(),
+                        category_filter.cyan()
+                    );
+                }
+            } else {
+                let category_stats = get_category_stats(&bookmarks);
+                display_category_stats_table(category_stats, use_colors)?;
+            }
+        }
+        "search" => {
+            if let Some(query) = matches.get_one::<String>("query") {
+                println!("{} Searching for: {}", "🔍".cyan(), query.yellow());
+                println!("{}", "─".repeat(50).dimmed());
+
+                let results = search_bookmarks(&bookmarks, query);
+                if results.is_empty() {
+                    println!(
+                        "{}",
+                        format!("No bookmarks found matching: {}", query).yellow()
+                    );
+                } else {
+                    let limited: Vec<_> = if let Some(lim) = limit {
+                        results.into_iter().take(lim).collect()
+                    } else {
+                        results
+                    };
+                    let count = limited.len();
+                    display_bookmarks_table(limited, use_colors)?;
+                    println!(
+                        "\n{} Found {} matching bookmarks",
+                        "📊".cyan(),
+                        count.to_string().yellow()
+                    );
+                }
+            } else {
+                println!(
+                    "{}",
+                    "Please provide a search query with --query <QUERY>".yellow()
+                );
+            }
+        }
+        "organize" => {
+            println!("{}", "📋 Organization Suggestions".bold().cyan());
+            println!("{}", "─".repeat(50).dimmed());
+
+            let suggestions = get_organize_suggestions(&bookmarks);
+            if suggestions.is_empty() {
+                println!("{}", "All bookmarks are already well-organized!".green());
+            } else {
+                let limited: Vec<_> = if let Some(lim) = limit {
+                    suggestions.into_iter().take(lim).collect()
+                } else {
+                    suggestions.into_iter().take(50).collect()
+                };
+                let count = limited.len();
+                display_organize_suggestions_table(limited, use_colors)?;
+                println!(
+                    "\n{} Found {} bookmarks that could be reorganized",
+                    "📊".cyan(),
+                    count.to_string().yellow()
+                );
+                println!(
+                    "\n{} To apply these changes, manually reorganize in Chrome or export and reimport.",
+                    "💡".yellow()
+                );
+            }
+        }
+        "export" => {
+            let output_path = matches.get_one::<String>("output").map(|s| s.as_str());
+            let default_path = "bookmarks_export.md";
+            let path = output_path.unwrap_or(default_path);
+
+            println!("{} Exporting bookmarks to markdown...", "📝".cyan());
+            export_to_markdown(&bookmarks, Some(path))?;
+            println!(
+                "\n{} Exported {} bookmarks to {}",
+                "✅".green(),
+                bookmarks.len().to_string().yellow(),
+                path.cyan()
+            );
+        }
+        _ => {
+            println!(
+                "{}",
+                format!(
+                    "Unknown subcommand: {}. Use: stats, duplicates, domains, categories, search, organize, export",
+                    subcommand
+                )
+                .yellow()
+            );
+        }
     }
 
     Ok(())
