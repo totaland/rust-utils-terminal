@@ -2,7 +2,11 @@ use anyhow::Result;
 use clap::{Arg, ArgMatches, Command as ClapCommand};
 use colored::Colorize;
 
-use crate::{display_aliases_table, display_functions_table, display_packages_table, get_all_aliases, get_all_functions, find_packages_with_version_greater_than};
+use crate::{
+    clean_node_modules, display_aliases_table, display_cleaned_table, display_functions_table,
+    display_packages_table, find_packages_with_version_greater_than, get_all_aliases,
+    get_all_functions,
+};
 
 pub fn build_cli() -> ClapCommand {
     ClapCommand::new("shell-explorer")
@@ -13,19 +17,23 @@ MODES:
   aliases   - Show shell aliases from config files and current session
   functions - Show shell functions with documentation from config files  
   packages  - Find package versions greater than a specified threshold
+  clean     - Remove all node_modules directories recursively (parallel)
 
 EXAMPLES:
   shell-explorer                                    # Show all aliases (default)
   shell-explorer --mode functions --filter git     # Show functions containing 'git'
   shell-explorer --mode packages --package react --min-version 17.0.0
-  shell-explorer --mode packages --package typescript --min-version 4.0.0 --path ./src")
+  shell-explorer --mode packages --package typescript --min-version 4.0.0 --path ./src
+  shell-explorer --mode clean --path ./projects    # Remove all node_modules
+  shell-explorer --mode clean --dry-run            # Preview what would be removed
+  shell-explorer --mode clean --interactive        # Select which node_modules to delete")
         .version("1.0.0")
         .arg(
             Arg::new("mode")
                 .short('m')
                 .long("mode")
                 .value_name("MODE")
-                .help("Mode: 'aliases' (default), 'functions', or 'packages'")
+                .help("Mode: 'aliases' (default), 'functions', 'packages', or 'clean'")
                 .default_value("aliases")
         )
         .arg(
@@ -79,26 +87,43 @@ EXAMPLES:
                 .help("Show verbose output including directories and files being scanned")
                 .action(clap::ArgAction::SetTrue)
         )
+        .arg(
+            Arg::new("dry_run")
+                .long("dry-run")
+                .help("Preview what would be removed without actually deleting (for clean mode)")
+                .action(clap::ArgAction::SetTrue)
+        )
+        .arg(
+            Arg::new("interactive")
+                .short('i')
+                .long("interactive")
+                .help("Interactive mode: select which node_modules to delete (for clean mode)")
+                .action(clap::ArgAction::SetTrue)
+        )
 }
 
 pub fn handle_aliases_mode(matches: &ArgMatches) -> Result<()> {
     let mut aliases = get_all_aliases()?;
-    
+
     // Apply filters
     if let Some(filter_pattern) = matches.get_one::<String>("filter") {
         let pattern = filter_pattern.to_lowercase();
         aliases.retain(|alias| {
-            alias.alias.to_lowercase().contains(&pattern) || 
-            alias.command.to_lowercase().contains(&pattern)
+            alias.alias.to_lowercase().contains(&pattern)
+                || alias.command.to_lowercase().contains(&pattern)
         });
         println!("{} Filtering by: {}", "🔍".cyan(), filter_pattern.yellow());
     }
-    
+
     if let Some(source_filter) = matches.get_one::<String>("source") {
         aliases.retain(|alias| alias.source.contains(source_filter));
-        println!("{} Filtering by source: {}", "📁".cyan(), source_filter.yellow());
+        println!(
+            "{} Filtering by source: {}",
+            "📁".cyan(),
+            source_filter.yellow()
+        );
     }
-    
+
     if aliases.is_empty() {
         println!("{}", "No aliases found matching your criteria.".yellow());
         return Ok(());
@@ -107,30 +132,38 @@ pub fn handle_aliases_mode(matches: &ArgMatches) -> Result<()> {
     let alias_count = aliases.len();
     let use_colors = !matches.get_flag("plain");
     display_aliases_table(aliases, use_colors)?;
-    
-    println!("\n{} Found {} aliases", "✨".green(), alias_count.to_string().bold());
+
+    println!(
+        "\n{} Found {} aliases",
+        "✨".green(),
+        alias_count.to_string().bold()
+    );
     Ok(())
 }
 
 pub fn handle_functions_mode(matches: &ArgMatches) -> Result<()> {
     let mut functions = get_all_functions()?;
-    
+
     // Apply filters
     if let Some(filter_pattern) = matches.get_one::<String>("filter") {
         let pattern = filter_pattern.to_lowercase();
         functions.retain(|func| {
-            func.name.to_lowercase().contains(&pattern) || 
-            func.description.to_lowercase().contains(&pattern) ||
-            func.usage.to_lowercase().contains(&pattern)
+            func.name.to_lowercase().contains(&pattern)
+                || func.description.to_lowercase().contains(&pattern)
+                || func.usage.to_lowercase().contains(&pattern)
         });
         println!("{} Filtering by: {}", "🔍".cyan(), filter_pattern.yellow());
     }
-    
+
     if let Some(source_filter) = matches.get_one::<String>("source") {
         functions.retain(|func| func.source.contains(source_filter));
-        println!("{} Filtering by source: {}", "📁".cyan(), source_filter.yellow());
+        println!(
+            "{} Filtering by source: {}",
+            "📁".cyan(),
+            source_filter.yellow()
+        );
     }
-    
+
     if functions.is_empty() {
         println!("{}", "No functions found matching your criteria.".yellow());
         return Ok(());
@@ -139,8 +172,12 @@ pub fn handle_functions_mode(matches: &ArgMatches) -> Result<()> {
     let function_count = functions.len();
     let use_colors = !matches.get_flag("plain");
     display_functions_table(functions, use_colors)?;
-    
-    println!("\n{} Found {} functions", "✨".green(), function_count.to_string().bold());
+
+    println!(
+        "\n{} Found {} functions",
+        "✨".green(),
+        function_count.to_string().bold()
+    );
     Ok(())
 }
 
@@ -149,35 +186,64 @@ pub fn handle_packages_mode(matches: &ArgMatches) -> Result<()> {
     let min_version = matches.get_one::<String>("min_version").unwrap();
     let search_path = matches.get_one::<String>("path").map(|s| s.as_str());
     let verbose = matches.get_flag("verbose");
-    
-    println!("{} Searching for package '{}' with version > {}", 
-        "🔍".cyan(), 
-        package_name.yellow(), 
+
+    println!(
+        "{} Searching for package '{}' with version > {}",
+        "🔍".cyan(),
+        package_name.yellow(),
         min_version.green()
     );
-    
+
     if let Some(path) = search_path {
         println!("{} Search path: {}", "📁".cyan(), path.yellow());
     }
-    
+
     if verbose {
-        println!("{} Verbose mode enabled - showing scan details", "🔍".cyan());
+        println!(
+            "{} Verbose mode enabled - showing scan details",
+            "🔍".cyan()
+        );
     }
-    
-    let packages = find_packages_with_version_greater_than(package_name, min_version, search_path, verbose)?;
-    
+
+    let packages =
+        find_packages_with_version_greater_than(package_name, min_version, search_path, verbose)?;
+
     if packages.is_empty() {
-        println!("{}", format!(
-            "No packages named '{}' found with version greater than '{}'", 
-            package_name, min_version
-        ).yellow());
+        println!(
+            "{}",
+            format!(
+                "No packages named '{}' found with version greater than '{}'",
+                package_name, min_version
+            )
+            .yellow()
+        );
         return Ok(());
     }
-    
+
     let package_count = packages.len();
     let use_colors = !matches.get_flag("plain");
     display_packages_table(packages, use_colors)?;
-    
-    println!("\n{} Found {} package instances", "✨".green(), package_count.to_string().bold());
+
+    println!(
+        "\n{} Found {} package instances",
+        "✨".green(),
+        package_count.to_string().bold()
+    );
+    Ok(())
+}
+
+pub fn handle_clean_mode(matches: &ArgMatches) -> Result<()> {
+    let search_path = matches.get_one::<String>("path").map(|s| s.as_str());
+    let dry_run = matches.get_flag("dry_run");
+    let verbose = matches.get_flag("verbose");
+    let interactive = matches.get_flag("interactive");
+
+    let results = clean_node_modules(search_path, dry_run, verbose, interactive)?;
+
+    if !results.is_empty() && !interactive {
+        let use_colors = !matches.get_flag("plain");
+        display_cleaned_table(results, use_colors)?;
+    }
+
     Ok(())
 }
